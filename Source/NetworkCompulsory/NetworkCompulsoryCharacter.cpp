@@ -11,6 +11,7 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
 #include "NetworkCompulsory.h"
+#include "Projectile.h"
 
 ANetworkCompulsoryCharacter::ANetworkCompulsoryCharacter()
 {
@@ -48,6 +49,40 @@ ANetworkCompulsoryCharacter::ANetworkCompulsoryCharacter()
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
+
+	//Initialize projectile class
+	ProjectileClass = AProjectile::StaticClass();
+	//Initialize fire rate
+	FireRate = 0.25f;
+	bIsFiringWeapon = false;
+}
+
+void ANetworkCompulsoryCharacter::StartFire()
+{
+	if (!bIsFiringWeapon)
+	{
+		bIsFiringWeapon = true;
+		UWorld* World = GetWorld();
+		World->GetTimerManager().SetTimer(FiringTimer, this, &ANetworkCompulsoryCharacter::StopFire, FireRate, false);
+		HandleFire();
+	}
+}
+	 
+void ANetworkCompulsoryCharacter::StopFire()
+{
+	bIsFiringWeapon = false;
+}
+	 
+void ANetworkCompulsoryCharacter::HandleFire_Implementation()
+{
+	FVector spawnLocation = GetActorLocation() + ( GetActorRotation().Vector()  * 100.0f ) + (GetActorUpVector() * 50.0f);
+	FRotator spawnRotation = GetActorRotation();
+	 
+	FActorSpawnParameters spawnParameters;
+	spawnParameters.Instigator = GetInstigator();
+	spawnParameters.Owner = this;
+	 
+	ANetworkCompulsoryCharacter* spawnedProjectile = GetWorld()->SpawnActor<ANetworkCompulsoryCharacter>(spawnLocation, spawnRotation, spawnParameters);
 }
 
 void ANetworkCompulsoryCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -65,6 +100,9 @@ void ANetworkCompulsoryCharacter::SetupPlayerInputComponent(UInputComponent* Pla
 
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ANetworkCompulsoryCharacter::Look);
+
+		// Handle firing projectiles
+		PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &ANetworkCompulsoryCharacter::StartFire);
 	}
 	else
 	{
