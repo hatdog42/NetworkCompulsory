@@ -14,7 +14,7 @@ class NETWORKCOMPULSORY_API UMyGameInstance : public UGameInstance
 	
 	public:
 		UFUNCTION(BlueprintCallable)
-		void HostLANDGame(const FName MapName);
+		void HostLANGame(const FName MapName);
 	
 		UFUNCTION(BlueprintCallable)
 		void JoinLANGame(const FString& ServerAddress);

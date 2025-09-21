@@ -3,7 +3,7 @@
 #include "Engine/Engine.h"
 #include "GameFramework/PlayerController.h"
 
-void UMyGameInstance::HostLANDGame(const FName MapName)
+void UMyGameInstance::HostLANGame(const FName MapName)
 {
 	FString Options = MapName.ToString() + TEXT("?listen");
 	UGameplayStatics::OpenLevel(GetWorld(),MapName,true,Options);
