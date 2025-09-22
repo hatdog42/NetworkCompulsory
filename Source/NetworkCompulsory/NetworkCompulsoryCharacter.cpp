@@ -11,12 +11,14 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
 #include "NetworkCompulsory.h"
+#include "Engine/Engine.h"
+#include "Net/UnrealNetwork.h"
 
 ANetworkCompulsoryCharacter::ANetworkCompulsoryCharacter()
 {
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
-		
+
 	// Don't rotate when the controller rotates. Let that just affect the camera.
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = false;
@@ -54,7 +56,7 @@ void ANetworkCompulsoryCharacter::SetupPlayerInputComponent(UInputComponent* Pla
 {
 	// Set up action bindings
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent)) {
-		
+
 		// Jumping
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
@@ -92,8 +94,20 @@ void ANetworkCompulsoryCharacter::Look(const FInputActionValue& Value)
 
 void ANetworkCompulsoryCharacter::DoMove(float Right, float Forward)
 {
-	if (GetController() != nullptr)
+	if (GetController() != nullptr && (Right != 0.0f || Forward != 0.0f))
 	{
+		if (HasAuthority())
+			// it says am i the server and if we are the server it says called on server
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("called on SERVER !!!"));
+			//server to single client
+			MyClientFunc();
+
+			//server to all clients
+			MyMulticastFunc();
+		}
+		else
+			MyServerFunc(); // from client to server
 		// find out which way is forward
 		const FRotator Rotation = GetController()->GetControlRotation();
 		const FRotator YawRotation(0, Rotation.Yaw, 0);
@@ -130,4 +144,98 @@ void ANetworkCompulsoryCharacter::DoJumpEnd()
 {
 	// signal the character to stop jumping
 	StopJumping();
+}
+
+bool ANetworkCompulsoryCharacter::MyClientFunc_Validate()
+{
+	return true;
+}
+
+// client to server RPC
+void ANetworkCompulsoryCharacter::MyServerFunc_Implementation()
+{
+
+	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("called on client and executed on the SERVER !!!"));
+}
+
+bool ANetworkCompulsoryCharacter::MyServerFunc_Validate()
+{
+	return true;
+}
+
+// server to single client RPC
+void ANetworkCompulsoryCharacter::MyClientFunc_Implementation()
+{
+	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, TEXT("called on SERVER and executed on the CLIENT !"));
+}
+// server to all clients RPC
+void ANetworkCompulsoryCharacter::MyMulticastFunc_Implementation()
+{
+	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, TEXT("called on SERVER and executed on ALL CLIENTS !!!"));
+}
+
+void ANetworkCompulsoryCharacter::OnRep_Health()
+{
+	GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, FString::Printf(TEXT("Health Updated: %f"), Health));
+
+}
+
+
+
+// Replication setup
+void ANetworkCompulsoryCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(ANetworkCompulsoryCharacter, Health);
+}
+
+void ANetworkCompulsoryCharacter::TakeDamage(float DamageAmount)
+{
+	if (HasAuthority()) // Only server should modify health
+	{
+		Health = FMath::Clamp(Health - DamageAmount, 0.f, MaxHealth);
+
+		if (Health <= 0.f)
+		{
+			// Character died
+			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, TEXT("Character Died!"));
+		}
+	}
+	else
+	{
+		// If client calls, route to server
+		ServerTakeDamage(DamageAmount);
+	}
+}
+
+void ANetworkCompulsoryCharacter::Heal(float HealAmount)
+{
+	if (HasAuthority())
+	{
+		Health = FMath::Clamp(Health + HealAmount, 0.f, MaxHealth);
+	}
+	else
+	{
+		ServerHeal(HealAmount);
+	}
+}
+bool ANetworkCompulsoryCharacter::ServerTakeDamage_Validate(float DamageAmount)
+{
+	return DamageAmount >= 0.f; // basic validation
+}
+
+void ANetworkCompulsoryCharacter::ServerTakeDamage_Implementation(float DamageAmount)
+{
+	TakeDamage(DamageAmount);
+}
+
+bool ANetworkCompulsoryCharacter::ServerHeal_Validate(float HealAmount)
+{
+	return HealAmount >= 0.f;
+}
+
+void ANetworkCompulsoryCharacter::ServerHeal_Implementation(float HealAmount)
+{
+	Heal(HealAmount);
 }
