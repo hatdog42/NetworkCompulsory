@@ -12,6 +12,7 @@
 #include "InputActionValue.h"
 #include "NetworkCompulsory.h"
 #include "Projectile.h"
+#include "Net/UnrealNetwork.h"
 
 ANetworkCompulsoryCharacter::ANetworkCompulsoryCharacter()
 {
@@ -50,12 +51,17 @@ ANetworkCompulsoryCharacter::ANetworkCompulsoryCharacter()
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 
+	//Initialize the player's Health
+	MaxHealth = 100.0f;
+	CurrentHealth = MaxHealth;
+	 
 	//Initialize projectile class
 	ProjectileClass = AProjectile::StaticClass();
 	//Initialize fire rate
 	FireRate = 0.25f;
 	bIsFiringWeapon = false;
 }
+
 
 void ANetworkCompulsoryCharacter::StartFire()
 {
@@ -102,7 +108,7 @@ void ANetworkCompulsoryCharacter::SetupPlayerInputComponent(UInputComponent* Pla
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ANetworkCompulsoryCharacter::Look);
 
 		// Handle firing projectiles
-		PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &ANetworkCompulsoryCharacter::StartFire);
+		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started, this, &ANetworkCompulsoryCharacter::StartFire);
 	}
 	else
 	{
@@ -169,3 +175,90 @@ void ANetworkCompulsoryCharacter::DoJumpEnd()
 	// signal the character to stop jumping
 	StopJumping();
 }
+
+// Replicated Properties
+	 
+void ANetworkCompulsoryCharacter::GetLifetimeReplicatedProps(TArray <FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	 
+	//Replicate current health.
+	DOREPLIFETIME(ANetworkCompulsoryCharacter, CurrentHealth);
+}
+	 
+void ANetworkCompulsoryCharacter::OnHealthUpdate()
+{
+	//Client-specific functionality
+	if (IsLocallyControlled())
+	{
+		FString healthMessage = FString::Printf(TEXT("You now have %f health remaining."), CurrentHealth);
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, healthMessage);
+	 
+		if (CurrentHealth <= 0)
+		{
+			FString deathMessage = FString::Printf(TEXT("You have been killed."));
+			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, deathMessage);
+		}
+	}
+
+	//Server-specific functionality
+	if (GetLocalRole() == ROLE_Authority)
+	{
+		FString healthMessage = FString::Printf(TEXT("%s now has %f health remaining."), *GetFName().ToString(), CurrentHealth);
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, healthMessage);
+	}
+	 
+	//Functions that occur on all machines.
+	/*
+		Any special functionality that should occur as a result of damage or death should be placed here.
+	*/
+}
+	 
+void ANetworkCompulsoryCharacter::OnRep_CurrentHealth()
+{
+	OnHealthUpdate();
+}
+	 
+void ANetworkCompulsoryCharacter::SetCurrentHealth(float healthValue)
+{
+	if (GetLocalRole() == ROLE_Authority)
+	{
+		CurrentHealth = FMath::Clamp(healthValue, 0.f, MaxHealth);
+		OnHealthUpdate();
+	}
+}
+	 
+float ANetworkCompulsoryCharacter::TakeDamage(float DamageTaken, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+{
+	float damageApplied = CurrentHealth - DamageTaken;
+	SetCurrentHealth(damageApplied);
+	return damageApplied;
+}
+/*	 
+void ANetworkCompulsoryCharacter::StartFire()
+{
+	if (!bIsFiringWeapon)
+	{
+		bIsFiringWeapon = true;
+		UWorld* World = GetWorld();
+		World->GetTimerManager().SetTimer(FiringTimer, this, &ANetworkCompulsoryCharacter::StopFire, FireRate, false);
+		HandleFire();
+	}
+}
+	 
+void ANetworkCompulsoryCharacter::StopFire()
+{
+	bIsFiringWeapon = false;
+}
+	 
+void ANetworkCompulsoryCharacter::HandleFire_Implementation()
+{
+	FVector spawnLocation = GetActorLocation() + (GetActorRotation().Vector() * 100.0f) + (GetActorUpVector() * 50.0f);
+	FRotator spawnRotation = GetActorRotation();
+	 
+	FActorSpawnParameters spawnParameters;
+	spawnParameters.Instigator = GetInstigator();
+	spawnParameters.Owner = this;
+	 
+	ANetworkCompulsoryCharacter* spawnedProjectile = GetWorld()->SpawnActor<AProjectile>(spawnLocation, spawnRotation, spawnParameters);
+}*/
