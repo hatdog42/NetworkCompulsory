@@ -238,4 +238,5 @@ bool ANetworkCompulsoryCharacter::ServerHeal_Validate(float HealAmount)
 void ANetworkCompulsoryCharacter::ServerHeal_Implementation(float HealAmount)
 {
 	Heal(HealAmount);
+
 }
