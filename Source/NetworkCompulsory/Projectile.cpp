@@ -30,7 +30,7 @@
 		}
 
 		//Definition for the Mesh that will serve as your visual representation.
-		static ConstructorHelpers::FObjectFinder<UStaticMesh> DefaultMesh(TEXT("/Game/StarterContent/Shapes/Shape_Sphere.Shape_Sphere"));
+		static ConstructorHelpers::FObjectFinder<UStaticMesh> DefaultMesh(TEXT("/Game/LevelPrototyping/Meshes/SM_Cube.SM_Cube"));
 		StaticMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 		StaticMesh->SetupAttachment(RootComponent);
 
@@ -42,7 +42,7 @@
 			StaticMesh->SetRelativeScale3D(FVector(0.75f, 0.75f, 0.75f));
 		}
 
-		static ConstructorHelpers::FObjectFinder<UParticleSystem> DefaultExplosionEffect(TEXT("/Game/StarterContent/Particles/P_Explosion.P_Explosion"));
+		static ConstructorHelpers::FObjectFinder<UParticleSystem> DefaultExplosionEffect(TEXT("/Game/FXVarietyPack/Particles/P_ky_explosion.P_ky_explosion"));
 		if (DefaultExplosionEffect.Succeeded())
 		{
 			ExplosionEffect = DefaultExplosionEffect.Object;

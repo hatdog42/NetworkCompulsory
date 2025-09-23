@@ -67,7 +67,7 @@ void ANetworkCompulsoryCharacter::StartFire()
 {
 	if (!bIsFiringWeapon)
 	{
-		TEXT("Bruh");
+		UE_LOG(LogTemp, Warning, TEXT("Bruh"));
 		bIsFiringWeapon = true;
 		UWorld* World = GetWorld();
 		World->GetTimerManager().SetTimer(FiringTimer, this, &ANetworkCompulsoryCharacter::StopFire, FireRate, false);
@@ -89,7 +89,7 @@ void ANetworkCompulsoryCharacter::HandleFire_Implementation()
 	spawnParameters.Instigator = GetInstigator();
 	spawnParameters.Owner = this;
 	 
-	ANetworkCompulsoryCharacter* spawnedProjectile = GetWorld()->SpawnActor<ANetworkCompulsoryCharacter>(spawnLocation, spawnRotation, spawnParameters);
+	AProjectile* spawnedProjectile = GetWorld()->SpawnActor<AProjectile>(spawnLocation, spawnRotation, spawnParameters);
 }
 
 void ANetworkCompulsoryCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
