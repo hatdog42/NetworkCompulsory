@@ -67,6 +67,7 @@ void ANetworkCompulsoryCharacter::StartFire()
 {
 	if (!bIsFiringWeapon)
 	{
+		TEXT("Bruh");
 		bIsFiringWeapon = true;
 		UWorld* World = GetWorld();
 		World->GetTimerManager().SetTimer(FiringTimer, this, &ANetworkCompulsoryCharacter::StopFire, FireRate, false);

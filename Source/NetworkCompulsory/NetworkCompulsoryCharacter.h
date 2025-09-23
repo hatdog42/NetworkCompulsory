@@ -52,34 +52,34 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* MouseLookAction;
 
-//protected:
-	/*UPROPERTY(EditDefaultsOnly, Category="Gameplay|Projectile")
+protected:
+	UPROPERTY(EditDefaultsOnly, Category="Gameplay|Projectile")
 	TSubclassOf<class AProjectile> ProjectileClass;
 
 	UPROPERTY(EditDefaultsOnly, Category="Input")
-	UInputAction* FireAction;*/
+	UInputAction* FireAction;
 	 
 	/** Delay between shots in seconds. Used to control fire rate for your test projectile, but also to prevent an overflow of server functions from binding SpawnProjectile directly to input.*/
-	//UPROPERTY(EditDefaultsOnly, Category="Gameplay")
-	//float FireRate;
+	UPROPERTY(EditDefaultsOnly, Category="Gameplay")
+	float FireRate;
 	 
 	/** If true, you are in the process of firing projectiles. */
-	//bool bIsFiringWeapon;
+	bool bIsFiringWeapon;
 	 
 	/** Function for beginning weapon fire.*/
-	//UFUNCTION(BlueprintCallable, Category="Gameplay")
-	//void StartFire();
+	UFUNCTION(BlueprintCallable, Category="Gameplay")
+	void StartFire();
 	 
 	/** Function for ending weapon fire. Once this is called, the player can use StartFire again.*/
-	//UFUNCTION(BlueprintCallable, Category = "Gameplay")
-	//void StopFire();
+	UFUNCTION(BlueprintCallable, Category = "Gameplay")
+	void StopFire();
 	 
 	/** Server function for spawning projectiles.*/
-	//UFUNCTION(Server, Reliable)
-	//void HandleFire();
+	UFUNCTION(Server, Reliable)
+	void HandleFire();
 	 
 	/** A timer handle used for providing the fire rate delay in-between spawns.*/
-	//FTimerHandle FiringTimer;
+	FTimerHandle FiringTimer;
 	
 public:
 
@@ -156,38 +156,38 @@ public:
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
-protected:
+//protected:
 	 
-	UPROPERTY(EditDefaultsOnly, Category = "Gameplay|Projectile")
-	TSubclassOf<class AProjectile> ProjectileClass;
+	//UPROPERTY(EditDefaultsOnly, Category = "Gameplay|Projectile")
+	//TSubclassOf<class AProjectile> ProjectileClass;
 	 
 	/** Delay between shots in seconds. Used to control fire rate for your test projectile, but also to prevent an overflow of server functions from binding SpawnProjectile directly to input.*/
-	UPROPERTY(EditDefaultsOnly, Category = "Gameplay")
-	float FireRate;
+	//UPROPERTY(EditDefaultsOnly, Category = "Gameplay")
+	//float FireRate;
 	 
 	/** If true, you are in the process of firing projectiles. */
-	bool bIsFiringWeapon;
+	//bool bIsFiringWeapon;
 	 
 	/** Function for beginning weapon fire.*/
-	UFUNCTION(BlueprintCallable, Category = "Gameplay")
-	void StartFire();
+	//UFUNCTION(BlueprintCallable, Category = "Gameplay")
+	//void StartFire();
 	 
 	/** Function for ending weapon fire. Once this is called, the player can use StartFire again.*/
-	UFUNCTION(BlueprintCallable, Category = "Gameplay")
-	void StopFire();
+	//UFUNCTION(BlueprintCallable, Category = "Gameplay")
+	//void StopFire();
 	 
 	/** Server function for spawning projectiles.*/
-	UFUNCTION(Server, Reliable)
-	void HandleFire();
+	//UFUNCTION(Server, Reliable)
+	//void HandleFire();
 	 
 	/** A timer handle used for providing the fire rate delay in-between spawns.*/
-	FTimerHandle FiringTimer;
+	//FTimerHandle FiringTimer;
 
 	// Input assets (assign these in the editor)
-	UPROPERTY(EditDefaultsOnly, Category="Input")
-	UInputMappingContext* DefaultMappingContext;
+	//UPROPERTY(EditDefaultsOnly, Category="Input")
+	//UInputMappingContext* DefaultMappingContext;
 
-	UPROPERTY(EditDefaultsOnly, Category="Input")
-	UInputAction* FireAction;
+	//UPROPERTY(EditDefaultsOnly, Category="Input")
+	//UInputAction* FireAction;
 };
 
