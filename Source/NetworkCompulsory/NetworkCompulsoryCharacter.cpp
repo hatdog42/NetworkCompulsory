@@ -11,14 +11,14 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
 #include "NetworkCompulsory.h"
-#include "Engine/Engine.h"
+#include "Projectile.h"
 #include "Net/UnrealNetwork.h"
 
 ANetworkCompulsoryCharacter::ANetworkCompulsoryCharacter()
 {
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
-
+		
 	// Don't rotate when the controller rotates. Let that just affect the camera.
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = false;
@@ -50,13 +50,53 @@ ANetworkCompulsoryCharacter::ANetworkCompulsoryCharacter()
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
+
+	//Initialize the player's Health
+	MaxHealth = 100.0f;
+	CurrentHealth = MaxHealth;
+	 
+	//Initialize projectile class
+	ProjectileClass = AProjectile::StaticClass();
+	//Initialize fire rate
+	FireRate = 0.25f;
+	bIsFiringWeapon = false;
+}
+
+
+void ANetworkCompulsoryCharacter::StartFire()
+{
+	if (!bIsFiringWeapon)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("Bruh"));
+		bIsFiringWeapon = true;
+		UWorld* World = GetWorld();
+		World->GetTimerManager().SetTimer(FiringTimer, this, &ANetworkCompulsoryCharacter::StopFire, FireRate, false);
+		HandleFire();
+	}
+}
+	 
+void ANetworkCompulsoryCharacter::StopFire()
+{
+	bIsFiringWeapon = false;
+}
+	 
+void ANetworkCompulsoryCharacter::HandleFire_Implementation()
+{
+	FVector spawnLocation = GetActorLocation() + ( GetActorRotation().Vector()  * 100.0f ) + (GetActorUpVector() * 50.0f);
+	FRotator spawnRotation = GetActorRotation();
+	 
+	FActorSpawnParameters spawnParameters;
+	spawnParameters.Instigator = GetInstigator();
+	spawnParameters.Owner = this;
+	 
+	AProjectile* spawnedProjectile = GetWorld()->SpawnActor<AProjectile>(spawnLocation, spawnRotation, spawnParameters);
 }
 
 void ANetworkCompulsoryCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	// Set up action bindings
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent)) {
-
+		
 		// Jumping
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
@@ -67,6 +107,9 @@ void ANetworkCompulsoryCharacter::SetupPlayerInputComponent(UInputComponent* Pla
 
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ANetworkCompulsoryCharacter::Look);
+
+		// Handle firing projectiles
+		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started, this, &ANetworkCompulsoryCharacter::StartFire);
 	}
 	else
 	{
@@ -94,20 +137,8 @@ void ANetworkCompulsoryCharacter::Look(const FInputActionValue& Value)
 
 void ANetworkCompulsoryCharacter::DoMove(float Right, float Forward)
 {
-	if (GetController() != nullptr && (Right != 0.0f || Forward != 0.0f))
+	if (GetController() != nullptr)
 	{
-		if (HasAuthority())
-			// it says am i the server and if we are the server it says called on server
-		{
-			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("called on SERVER !!!"));
-			//server to single client
-			MyClientFunc();
-
-			//server to all clients
-			MyMulticastFunc();
-		}
-		else
-			MyServerFunc(); // from client to server
 		// find out which way is forward
 		const FRotator Rotation = GetController()->GetControlRotation();
 		const FRotator YawRotation(0, Rotation.Yaw, 0);
@@ -146,97 +177,89 @@ void ANetworkCompulsoryCharacter::DoJumpEnd()
 	StopJumping();
 }
 
-bool ANetworkCompulsoryCharacter::MyClientFunc_Validate()
-{
-	return true;
-}
-
-// client to server RPC
-void ANetworkCompulsoryCharacter::MyServerFunc_Implementation()
-{
-
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, TEXT("called on client and executed on the SERVER !!!"));
-}
-
-bool ANetworkCompulsoryCharacter::MyServerFunc_Validate()
-{
-	return true;
-}
-
-// server to single client RPC
-void ANetworkCompulsoryCharacter::MyClientFunc_Implementation()
-{
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, TEXT("called on SERVER and executed on the CLIENT !"));
-}
-// server to all clients RPC
-void ANetworkCompulsoryCharacter::MyMulticastFunc_Implementation()
-{
-	GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Cyan, TEXT("called on SERVER and executed on ALL CLIENTS !!!"));
-}
-
-void ANetworkCompulsoryCharacter::OnRep_Health()
-{
-	GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, FString::Printf(TEXT("Health Updated: %f"), Health));
-
-}
-
-
-
-// Replication setup
-void ANetworkCompulsoryCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+// Replicated Properties
+	 
+void ANetworkCompulsoryCharacter::GetLifetimeReplicatedProps(TArray <FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-
-	DOREPLIFETIME(ANetworkCompulsoryCharacter, Health);
+	 
+	//Replicate current health.
+	DOREPLIFETIME(ANetworkCompulsoryCharacter, CurrentHealth);
 }
-
-void ANetworkCompulsoryCharacter::TakeDamage(float DamageAmount)
+	 
+void ANetworkCompulsoryCharacter::OnHealthUpdate()
 {
-	if (HasAuthority()) // Only server should modify health
+	//Client-specific functionality
+	if (IsLocallyControlled())
 	{
-		Health = FMath::Clamp(Health - DamageAmount, 0.f, MaxHealth);
-
-		if (Health <= 0.f)
+		FString healthMessage = FString::Printf(TEXT("You now have %f health remaining."), CurrentHealth);
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, healthMessage);
+	 
+		if (CurrentHealth <= 0)
 		{
-			// Character died
-			GEngine->AddOnScreenDebugMessage(-1, 2.f, FColor::Red, TEXT("Character Died!"));
+			FString deathMessage = FString::Printf(TEXT("You have been killed."));
+			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, deathMessage);
 		}
 	}
-	else
+
+	//Server-specific functionality
+	if (GetLocalRole() == ROLE_Authority)
 	{
-		// If client calls, route to server
-		ServerTakeDamage(DamageAmount);
+		FString healthMessage = FString::Printf(TEXT("%s now has %f health remaining."), *GetFName().ToString(), CurrentHealth);
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, healthMessage);
+	}
+	 
+	//Functions that occur on all machines.
+	/*
+		Any special functionality that should occur as a result of damage or death should be placed here.
+	*/
+}
+	 
+void ANetworkCompulsoryCharacter::OnRep_CurrentHealth()
+{
+	OnHealthUpdate();
+}
+	 
+void ANetworkCompulsoryCharacter::SetCurrentHealth(float healthValue)
+{
+	if (GetLocalRole() == ROLE_Authority)
+	{
+		CurrentHealth = FMath::Clamp(healthValue, 0.f, MaxHealth);
+		OnHealthUpdate();
 	}
 }
-
-void ANetworkCompulsoryCharacter::Heal(float HealAmount)
+	 
+float ANetworkCompulsoryCharacter::TakeDamage(float DamageTaken, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
-	if (HasAuthority())
+	float damageApplied = CurrentHealth - DamageTaken;
+	SetCurrentHealth(damageApplied);
+	return damageApplied;
+}
+/*	 
+void ANetworkCompulsoryCharacter::StartFire()
+{
+	if (!bIsFiringWeapon)
 	{
-		Health = FMath::Clamp(Health + HealAmount, 0.f, MaxHealth);
+		bIsFiringWeapon = true;
+		UWorld* World = GetWorld();
+		World->GetTimerManager().SetTimer(FiringTimer, this, &ANetworkCompulsoryCharacter::StopFire, FireRate, false);
+		HandleFire();
 	}
-	else
-	{
-		ServerHeal(HealAmount);
-	}
 }
-bool ANetworkCompulsoryCharacter::ServerTakeDamage_Validate(float DamageAmount)
+	 
+void ANetworkCompulsoryCharacter::StopFire()
 {
-	return DamageAmount >= 0.f; // basic validation
+	bIsFiringWeapon = false;
 }
-
-void ANetworkCompulsoryCharacter::ServerTakeDamage_Implementation(float DamageAmount)
+	 
+void ANetworkCompulsoryCharacter::HandleFire_Implementation()
 {
-	TakeDamage(DamageAmount);
-}
-
-bool ANetworkCompulsoryCharacter::ServerHeal_Validate(float HealAmount)
-{
-	return HealAmount >= 0.f;
-}
-
-void ANetworkCompulsoryCharacter::ServerHeal_Implementation(float HealAmount)
-{
-	Heal(HealAmount);
-
-}
+	FVector spawnLocation = GetActorLocation() + (GetActorRotation().Vector() * 100.0f) + (GetActorUpVector() * 50.0f);
+	FRotator spawnRotation = GetActorRotation();
+	 
+	FActorSpawnParameters spawnParameters;
+	spawnParameters.Instigator = GetInstigator();
+	spawnParameters.Owner = this;
+	 
+	ANetworkCompulsoryCharacter* spawnedProjectile = GetWorld()->SpawnActor<AProjectile>(spawnLocation, spawnRotation, spawnParameters);
+}*/
