@@ -1,240 +1,293 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "NetworkCompulsoryCharacter.h"
-#include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
-#include "GameFramework/Controller.h"
 #include "EnhancedInputComponent.h"
-#include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
-#include "NetworkCompulsory.h"
 #include "Projectile.h"
+#include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
+#include "Engine/Engine.h"
+#include "Particles/ParticleSystem.h"
+#include "TimerManager.h"
+
+DEFINE_LOG_CATEGORY(LogTemplateCharacter);
 
 ANetworkCompulsoryCharacter::ANetworkCompulsoryCharacter()
 {
-	// Set size for collision capsule
+	PrimaryActorTick.bCanEverTick = false;
+
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
-		
-	// Don't rotate when the controller rotates. Let that just affect the camera.
+
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
 
-	// Configure character movement
 	GetCharacterMovement()->bOrientRotationToMovement = true;
-	GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
-
-	// Note: For faster iteration times these variables, and many more, can be tweaked in the Character Blueprint
-	// instead of recompiling to adjust them
+	GetCharacterMovement()->RotationRate = FRotator(0.f, 500.f, 0.f);
 	GetCharacterMovement()->JumpZVelocity = 500.f;
 	GetCharacterMovement()->AirControl = 0.35f;
 	GetCharacterMovement()->MaxWalkSpeed = 500.f;
-	GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
-	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
+	GetCharacterMovement()->BrakingDecelerationFalling = 1500.f;
 
-	// Create a camera boom (pulls in towards the player if there is a collision)
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
-	CameraBoom->TargetArmLength = 400.0f;
+	CameraBoom->TargetArmLength = 400.f;
 	CameraBoom->bUsePawnControlRotation = true;
 
-	// Create a follow camera
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
 
-	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
-	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
-
-	//Initialize the player's Health
-	MaxHealth = 100.0f;
+	MaxHealth = 100.f;
 	CurrentHealth = MaxHealth;
-	 
-	//Initialize projectile class
+
 	ProjectileClass = AProjectile::StaticClass();
-	//Initialize fire rate
 	FireRate = 0.25f;
 	bIsFiringWeapon = false;
-}
 
-
-void ANetworkCompulsoryCharacter::StartFire()
-{
-	if (!bIsFiringWeapon)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Bruh"));
-		bIsFiringWeapon = true;
-		UWorld* World = GetWorld();
-		World->GetTimerManager().SetTimer(FiringTimer, this, &ANetworkCompulsoryCharacter::StopFire, FireRate, false);
-		HandleFire();
-	}
-}
-	 
-void ANetworkCompulsoryCharacter::StopFire()
-{
-	bIsFiringWeapon = false;
-}
-	 
-void ANetworkCompulsoryCharacter::HandleFire_Implementation()
-{
-	FVector spawnLocation = GetActorLocation() + ( GetActorRotation().Vector()  * 100.0f ) + (GetActorUpVector() * 50.0f);
-	FRotator spawnRotation = GetActorRotation();
-	 
-	FActorSpawnParameters spawnParameters;
-	spawnParameters.Instigator = GetInstigator();
-	spawnParameters.Owner = this;
-	 
-	AProjectile* spawnedProjectile = GetWorld()->SpawnActor<AProjectile>(spawnLocation, spawnRotation, spawnParameters);
+	bReplicates = true;
 }
 
 void ANetworkCompulsoryCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
-	// Set up action bindings
-	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent)) {
-		
-		// Jumping
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+	if (UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PlayerInputComponent))
+	{
+		EnhancedInput->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
+		EnhancedInput->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
+		EnhancedInput->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ANetworkCompulsoryCharacter::Move);
 
-		// Moving
-		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ANetworkCompulsoryCharacter::Move);
-		EnhancedInputComponent->BindAction(MouseLookAction, ETriggerEvent::Triggered, this, &ANetworkCompulsoryCharacter::Look);
-
-		// Looking
-		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ANetworkCompulsoryCharacter::Look);
-
-		// Handle firing projectiles
-		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started, this, &ANetworkCompulsoryCharacter::StartFire);
+		if (LookAction)
+		{
+			EnhancedInput->BindAction(LookAction, ETriggerEvent::Triggered, this, &ANetworkCompulsoryCharacter::Look);
+		}
+		if (MouseLookAction)
+		{
+			EnhancedInput->BindAction(MouseLookAction, ETriggerEvent::Triggered, this, &ANetworkCompulsoryCharacter::Look);
+		}
+		if (FireAction)
+		{
+			EnhancedInput->BindAction(FireAction, ETriggerEvent::Started, this, &ANetworkCompulsoryCharacter::StartFire);
+		}
 	}
 	else
 	{
-		UE_LOG(LogNetworkCompulsory, Error, TEXT("'%s' Failed to find an Enhanced Input component! This template is built to use the Enhanced Input system. If you intend to use the legacy system, then you will need to update this C++ file."), *GetNameSafe(this));
+		UE_LOG(LogTemplateCharacter, Error, TEXT("%s missing EnhancedInputComponent!"), *GetName());
 	}
 }
 
 void ANetworkCompulsoryCharacter::Move(const FInputActionValue& Value)
 {
-	// input is a Vector2D
-	FVector2D MovementVector = Value.Get<FVector2D>();
-
-	// route the input
+	const FVector2D MovementVector = Value.Get<FVector2D>();
 	DoMove(MovementVector.X, MovementVector.Y);
 }
 
 void ANetworkCompulsoryCharacter::Look(const FInputActionValue& Value)
 {
-	// input is a Vector2D
-	FVector2D LookAxisVector = Value.Get<FVector2D>();
-
-	// route the input
-	DoLook(LookAxisVector.X, LookAxisVector.Y);
+	const FVector2D LookAxis = Value.Get<FVector2D>();
+	DoLook(LookAxis.X, LookAxis.Y);
 }
 
 void ANetworkCompulsoryCharacter::DoMove(float Right, float Forward)
 {
-	if (GetController() != nullptr)
+	if (Controller)
 	{
-		// find out which way is forward
-		const FRotator Rotation = GetController()->GetControlRotation();
-		const FRotator YawRotation(0, Rotation.Yaw, 0);
+		const FRotator Rotation = Controller->GetControlRotation();
+		const FRotator YawRotation(0.f, Rotation.Yaw, 0.f);
 
-		// get forward vector
-		const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+		const FVector ForwardDir = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+		const FVector RightDir = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
-		// get right vector 
-		const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
-
-		// add movement 
-		AddMovementInput(ForwardDirection, Forward);
-		AddMovementInput(RightDirection, Right);
+		AddMovementInput(ForwardDir, Forward);
+		AddMovementInput(RightDir, Right);
 	}
 }
 
 void ANetworkCompulsoryCharacter::DoLook(float Yaw, float Pitch)
 {
-	if (GetController() != nullptr)
+	if (Controller)
 	{
-		// add yaw and pitch input to controller
 		AddControllerYawInput(Yaw);
 		AddControllerPitchInput(Pitch);
 	}
 }
 
-void ANetworkCompulsoryCharacter::DoJumpStart()
+void ANetworkCompulsoryCharacter::DoJumpStart() { Jump(); }
+void ANetworkCompulsoryCharacter::DoJumpEnd() { StopJumping(); }
+
+// -------------------- Firing --------------------
+void ANetworkCompulsoryCharacter::StartFire()
 {
-	// signal the character to jump
-	Jump();
+	if (!bIsFiringWeapon)
+	{
+		bIsFiringWeapon = true;
+
+		if (GetWorld())
+		{
+			GetWorld()->GetTimerManager().SetTimer(FiringTimer, this, &ANetworkCompulsoryCharacter::StopFire, FireRate, false);
+		}
+		HandleFire();
+	}
 }
 
-void ANetworkCompulsoryCharacter::DoJumpEnd()
+void ANetworkCompulsoryCharacter::StopFire()
 {
-	// signal the character to stop jumping
-	StopJumping();
+	bIsFiringWeapon = false;
 }
 
-// Replicated Properties
-	 
-void ANetworkCompulsoryCharacter::GetLifetimeReplicatedProps(TArray <FLifetimeProperty>& OutLifetimeProps) const
+void ANetworkCompulsoryCharacter::HandleFire_Implementation()
+{
+	if (!ProjectileClass || !GetWorld())
+		return;
+
+	const FVector SpawnLocation = GetActorLocation() + (GetActorForwardVector() * 100.f) + (GetActorUpVector() * 50.f);
+	const FRotator SpawnRotation = GetActorRotation();
+
+	FActorSpawnParameters Params;
+	Params.Owner = this;
+	Params.Instigator = GetInstigator();
+
+	GetWorld()->SpawnActor<AProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, Params);
+}
+
+// -------------------- Health & Replication --------------------
+void ANetworkCompulsoryCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	 
-	//Replicate current health.
 	DOREPLIFETIME(ANetworkCompulsoryCharacter, CurrentHealth);
 }
-	 
+
 void ANetworkCompulsoryCharacter::OnHealthUpdate()
 {
-	//Client-specific functionality
-	if (IsLocallyControlled())
+	if (IsLocallyControlled() && GEngine)
 	{
-		FString healthMessage = FString::Printf(TEXT("You now have %f health remaining."), CurrentHealth);
-		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, healthMessage);
-	 
-		if (CurrentHealth <= 0)
+		GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Cyan, FString::Printf(TEXT("Health: %.1f"), CurrentHealth));
+		if (CurrentHealth <= 0.f)
 		{
-			FString deathMessage = FString::Printf(TEXT("You have been killed."));
-			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, deathMessage);
+			GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red, TEXT("You have died."));
 		}
 	}
 
-	//Server-specific functionality
-	if (GetLocalRole() == ROLE_Authority)
+	if (HasAuthority())
 	{
-		FString healthMessage = FString::Printf(TEXT("%s now has %f health remaining."), *GetFName().ToString(), CurrentHealth);
-		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Blue, healthMessage);
+		UE_LOG(LogTemplateCharacter, Log, TEXT("%s now has %.1f HP"), *GetName(), CurrentHealth);
 	}
-	 
-	//Functions that occur on all machines.
-	/*
-		Any special functionality that should occur as a result of damage or death should be placed here.
-	*/
+
+	if (CurrentHealth <= 0.f)
+	{
+		HandleDeath();
+	}
 }
-	 
+
 void ANetworkCompulsoryCharacter::OnRep_CurrentHealth()
 {
 	OnHealthUpdate();
 }
-	 
-void ANetworkCompulsoryCharacter::SetCurrentHealth(float healthValue)
+
+void ANetworkCompulsoryCharacter::SetCurrentHealth(float HealthValue)
 {
-	if (GetLocalRole() == ROLE_Authority)
+	if (HasAuthority())
 	{
-		CurrentHealth = FMath::Clamp(healthValue, 0.f, MaxHealth);
+		CurrentHealth = FMath::Clamp(HealthValue, 0.f, MaxHealth);
 		OnHealthUpdate();
 	}
 }
-	 
-float ANetworkCompulsoryCharacter::TakeDamage(float DamageTaken, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
+
+float ANetworkCompulsoryCharacter::TakeDamage(float DamageTaken, const FDamageEvent& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
-	float damageApplied = CurrentHealth - DamageTaken;
-	SetCurrentHealth(damageApplied);
-	return damageApplied;
+	if (!HasAuthority())
+	{
+		ServerTakeDamage(DamageTaken);
+		return DamageTaken;
+	}
+
+	SetCurrentHealth(CurrentHealth - DamageTaken);
+	return DamageTaken;
 }
+
+// -------------------- RPC IMPLEMENTATIONS --------------------
+void ANetworkCompulsoryCharacter::ServerTakeDamage_Implementation(float DamageAmount)
+{
+	if (!HasAuthority())
+		return;
+
+	if (DamageAmount <= 0.f || DamageAmount > 1000.f)
+	{
+		UE_LOG(LogTemplateCharacter, Warning, TEXT("Rejected invalid damage: %f from %s"), DamageAmount, *GetName());
+		return;
+	}
+
+	SetCurrentHealth(CurrentHealth - DamageAmount);
+	ClientShowHitEffect();
+
+	if (CurrentHealth <= 0.f)
+	{
+		MulticastPlayExplosion();
+		HandleDeath();
+	}
+}
+
+void ANetworkCompulsoryCharacter::ClientShowHitEffect_Implementation()
+{
+	PlayHitFeedback();
+}
+
+void ANetworkCompulsoryCharacter::ClientRPC_Implementation()
+{
+	UE_LOG(LogTemp, Log, TEXT("ClientRPC executed."));
+}
+
+void ANetworkCompulsoryCharacter::ServerRPC_Implementation()
+{
+	UE_LOG(LogTemp, Log, TEXT("ServerRPC executed."));
+}
+
+void ANetworkCompulsoryCharacter::MulticastRPC_Implementation()
+{
+	UE_LOG(LogTemp, Log, TEXT("MulticastRPC executed."));
+}
+
+void ANetworkCompulsoryCharacter::MulticastPlayExplosion_Implementation()
+{
+	if (!GetWorld())
+		return;
+
+	UParticleSystem* ExplosionEffect = LoadObject<UParticleSystem>(nullptr, TEXT("/Game/StarterContent/Particles/P_Explosion.P_Explosion"));
+	if (ExplosionEffect)
+	{
+		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), ExplosionEffect, GetActorLocation());
+	}
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Orange, TEXT("Explosion multicast triggered"));
+	}
+}
+
+// -------------------- Helpers --------------------
+void ANetworkCompulsoryCharacter::PlayHitFeedback()
+{
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 1.5f, FColor::Yellow, TEXT("You've been hit!"));
+	}
+}
+
+void ANetworkCompulsoryCharacter::HandleDeath()
+{
+	DisableInput(nullptr);
+	GetCharacterMovement()->DisableMovement();
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Red, TEXT("Character has died."));
+	}
+}
+
 /*	 
 void ANetworkCompulsoryCharacter::StartFire()
 {
